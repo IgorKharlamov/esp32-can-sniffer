@@ -1,0 +1,69 @@
+#include <mcp2515.h>
+#include <CanHacker.h>
+#include <CanHackerLineReader.h>
+#include <SPI.h>
+
+// --- Пины ESP32 ---ф
+const int SPI_CS_PIN = 5;    // CS  -> GPIO5
+const int INT_PIN    = 21;   // INT -> GPIO21
+const int LED_PIN    = 2;    // Встроенный светодиод
+
+CanHackerLineReader *lineReader = NULL;
+CanHacker *canHacker = NULL;
+
+void handleError(const CanHacker::ERROR error);
+
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+  SPI.begin();
+
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, HIGH);
+
+  Stream *interfaceStream = &Serial;   // связь с CANHacker
+  Stream *debugStream     = &Serial;   // отладка
+
+  canHacker = new CanHacker(interfaceStream, debugStream, (uint8_t)SPI_CS_PIN);
+
+  // ⚠️ Кварц 8 МГц
+  canHacker->setClock(MCP_8MHZ);
+
+  // ⚠️ УБЕРИ LOOPBACK для работы на реальной шине!
+  // canHacker->enableLoopback();
+
+  lineReader = new CanHackerLineReader(canHacker);
+  pinMode(INT_PIN, INPUT);
+
+  Serial.println("System On! CANHacker + MCP2515 (ESP32, 8MHz)");
+  Serial.println("Готов к работе на реальной шине");
+}
+
+void loop() {
+  CanHacker::ERROR error;
+
+  // Приём из CAN-шины
+  if (digitalRead(INT_PIN) == LOW) {
+    digitalWrite(LED_PIN, LOW);
+    error = canHacker->processInterrupt();
+    handleError(error);
+    digitalWrite(LED_PIN, HIGH);
+  }
+
+  // Команды от ПК (включая передачу)
+  error = lineReader->process();
+  handleError(error);
+
+  yield();
+}
+
+void handleError(const CanHacker::ERROR error) {
+  if (error == CanHacker::ERROR_OK ||
+      error == CanHacker::ERROR_UNKNOWN_COMMAND ||
+      error == CanHacker::ERROR_NOT_CONNECTED ||
+      error == CanHacker::ERROR_MCP2515_ERRIF ||
+      error == CanHacker::ERROR_INVALID_COMMAND) return;
+
+  Serial.print("Error: ");
+  Serial.println((int)error);
+}
